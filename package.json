@@ -1,0 +1,50 @@
+{
+  "name": "socbuilder",
+  "displayName": "SoCBuilder",
+  "description": "SystemVerilog productivity tools for SoC design (align, instantiate, etc.)",
+  "version": "0.0.1",
+  "publisher": "your-name",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onCommand:socBuilder.alignDeclarations"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "socBuilder.alignDeclarations",
+        "title": "SoCBuilder: Align Declarations"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "socBuilder.alignDeclarations",
+          "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "socBuilder.alignDeclarations",
+        "key": "ctrl+alt+a",
+        "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4"
+  }
+}
