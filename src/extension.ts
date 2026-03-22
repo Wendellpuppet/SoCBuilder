@@ -3,55 +3,38 @@ import * as vscode from "vscode";
 type ParsedDecl = {
   indent: string;
   typePart: string;
-  rangePart: string;
+  ranges: string[];
   namePart: string;
   suffix: string;
   original: string;
 };
 
 function parseDeclarationLine(line: string): ParsedDecl | null {
-  // 保留空行和纯注释行不处理
-  if (/^\s*$/.test(line)) {
-    return null;
-  }
-  if (/^\s*\/\//.test(line)) {
-    return null;
-  }
+  if (/^\s*$/.test(line)) return null;
+  if (/^\s*\/\//.test(line)) return null;
 
-  // 只处理最基础的单变量声明:
-  // logic a;
-  // logic [7:0] a;
-  // logic signed [7:0] a;
-  // wire a;
-  // reg [3:0] data;
-  //
-  // 暂不处理:
-  // logic a, b;
-  // logic a = 1'b0;
-  // typedef / struct / enum
-  // 复杂数组维度 / packed+unpacked 混合
+  const indentMatch = line.match(/^(\s*)/);
+  const indent = indentMatch ? indentMatch[1] : "";
 
-  const regex =
-    /^(\s*)(.+?)(\s+(\[[^\]]+\]))?(\s+)([A-Za-z_]\w*)(\s*;(\s*\/\/.*)?)$/;
+  // 提取所有维度 []
+  const ranges = line.match(/\[[^\]]+\]/g) || [];
 
-  const match = line.match(regex);
-  if (!match) {
-    return null;
-  }
+  // 去掉 [] 后再解析 type 和 name
+  const lineWithoutRanges = line.replace(/\[[^\]]+\]/g, "").trim();
 
-  const indent = match[1] ?? "";
-  const fullType = (match[2] ?? "").trim();
-  const rangeWithSpace = match[3] ?? "";
-  const rangePart = rangeWithSpace.trim();
-  const namePart = match[6] ?? "";
-  const suffix = match[7] ?? ";";
+  const parts = lineWithoutRanges.split(/\s+/);
+
+  if (parts.length < 2) return null;
+
+  const namePart = parts.pop()!.replace(";", "");
+  const typePart = parts.join(" ");
 
   return {
     indent,
-    typePart: fullType,
-    rangePart,
+    typePart,
+    ranges,
     namePart,
-    suffix,
+    suffix: ";",
     original: line,
   };
 }
@@ -65,48 +48,52 @@ function padRight(text: string, width: number): string {
 
 function alignDeclarationBlock(text: string): string {
   const lines = text.split(/\r?\n/);
-
   const parsed = lines.map(parseDeclarationLine);
 
-  const validDecls = parsed.filter((x): x is ParsedDecl => x !== null);
+  const valid = parsed.filter(x => x !== null);
 
-  if (validDecls.length === 0) {
-    return text;
+  if (valid.length === 0) return text;
+
+  const typeWidth = Math.max(...valid.map(x => x!.typePart.length));
+
+  // 计算最多多少维
+  const maxDims = Math.max(...valid.map(x => x!.ranges.length));
+
+  // 每一列宽度
+  const dimWidths = Array(maxDims).fill(0);
+
+  for (const item of valid) {
+    item!.ranges.forEach((r, i) => {
+      dimWidths[i] = Math.max(dimWidths[i], r.length);
+    });
   }
 
-  const typeWidth = Math.max(...validDecls.map((x) => x.typePart.length));
-  const rangeWidth = Math.max(...validDecls.map((x) => x.rangePart.length));
-
-  const output: string[] = [];
+  const result: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const item = parsed[i];
+
     if (!item) {
-      output.push(lines[i]);
+      result.push(lines[i]);
       continue;
     }
 
-    const typeCol = padRight(item.typePart, typeWidth);
-    const rangeCol =
-      rangeWidth > 0 ? padRight(item.rangePart, rangeWidth) : item.rangePart;
+    let line = item.indent;
 
-    const pieces = [item.indent, typeCol];
+    line += padRight(item.typePart, typeWidth) + "  ";
 
-    // type 后面至少 2 空格
-    pieces.push("  ");
-
-    if (rangeWidth > 0) {
-      pieces.push(rangeCol);
-      pieces.push("  ");
+    // 对齐每一维
+    for (let d = 0; d < maxDims; d++) {
+      const r = item.ranges[d] || "";
+      line += padRight(r, dimWidths[d]) + "  ";
     }
 
-    pieces.push(item.namePart);
-    pieces.push(item.suffix);
+    line += item.namePart + item.suffix;
 
-    output.push(pieces.join(""));
+    result.push(line);
   }
 
-  return output.join("\n");
+  return result.join("\n");
 }
 
 export function activate(context: vscode.ExtensionContext) {
