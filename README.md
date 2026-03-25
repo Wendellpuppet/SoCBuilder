@@ -30,10 +30,10 @@ logic [66:0] [4:0] [5:0] d;
 #### After:
 
 ```sv
-logic         a;
-logic [8:0]   b;
-logic [7:0]   [8:0]   c;
-logic [66:0]  [4:0]   [5:0] d;
+logic                    a;
+logic [8:0]              b;
+logic [7:0]  [8:0]       c;
+logic [66:0] [4:0] [5:0] d;
 ```
 
 ✔ Multi-dimension ranges aligned independently
