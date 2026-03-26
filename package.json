@@ -2,8 +2,9 @@
   "name": "socbuilder",
   "displayName": "SoCBuilder",
   "description": "SystemVerilog productivity tools for SoC design (align, instantiate, etc.)",
-  "version": "0.0.7",
+  "version": "0.1.1",
   "publisher": "WendellZhao",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.88.0"
   },
