@@ -90,20 +90,55 @@ function parseParameterLine(line: string): ParsedParam | null {
     return null;
   }
 
-  const m = body.match(/^parameter\s+(.+?)\s+([A-Za-z_]\w*)\s*(=\s*.+)?$/);
-  if (!m) {
+  const afterKeyword = body.slice("parameter".length).trim();
+
+  // 先匹配“无类型” parameter
+  // 例如:
+  // parameter C = 4;
+  const noTypeMatch = afterKeyword.match(
+    /^([A-Za-z_]\w*)\s*(=\s*.+)?$/
+  );
+
+  if (noTypeMatch) {
+    const namePart = noTypeMatch[1];
+    const rawValuePart = noTypeMatch[2] ? noTypeMatch[2].trim() : "";
+    const valuePart = rawValuePart
+      ? rawValuePart.replace(/^=\s*/, "= ")
+      : "";
+
+    return {
+      indent,
+      typePart: "",
+      namePart,
+      valuePart,
+      suffix,
+      original: line,
+    };
+  }
+
+  // 再匹配“有类型” parameter
+  // 例如:
+  // parameter int A = 4;
+  // parameter logic [7:0] WIDTH = 8;
+  const typedMatch = afterKeyword.match(
+    /^(.+?)\s+([A-Za-z_]\w*)\s*(=\s*.+)?$/
+  );
+
+  if (!typedMatch) {
     return null;
   }
 
-  const rawValuePart = m[3] ? m[3].trim() : "";
+  const typePart = typedMatch[1].trim();
+  const namePart = typedMatch[2];
+  const rawValuePart = typedMatch[3] ? typedMatch[3].trim() : "";
   const valuePart = rawValuePart
     ? rawValuePart.replace(/^=\s*/, "= ")
     : "";
 
   return {
     indent,
-    typePart: m[1].trim(),
-    namePart: m[2],
+    typePart,
+    namePart,
     valuePart,
     suffix,
     original: line,
@@ -176,6 +211,7 @@ function alignParameterBlock(lines: string[]): string[] {
     return lines;
   }
 
+  // 整个 parameter block 统一缩进
   const blockIndent = validParams[0].indent;
   const typeWidth = Math.max(...validParams.map((x) => x.typePart.length));
   const nameWidth = Math.max(...validParams.map((x) => x.namePart.length));
@@ -192,8 +228,13 @@ function alignParameterBlock(lines: string[]): string[] {
     const pieces: string[] = [];
     pieces.push(blockIndent);
     pieces.push("parameter ");
-    pieces.push(padRight(item.typePart, typeWidth));
-    pieces.push(" ");
+
+    // 有类型 / 无类型都统一占位
+    if (typeWidth > 0) {
+      pieces.push(padRight(item.typePart, typeWidth));
+      pieces.push(" ");
+    }
+
     pieces.push(padRight(item.namePart, nameWidth));
 
     if (item.valuePart) {
