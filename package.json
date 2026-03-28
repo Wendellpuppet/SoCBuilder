@@ -2,7 +2,7 @@
   "name": "socbuilder",
   "displayName": "SoCBuilder",
   "description": "SystemVerilog productivity tools for SoC design (align, instantiate, etc.)",
-  "version": "0.1.3",
+  "version": "0.4.0",
   "publisher": "WendellZhao",
   "icon": "images/icon.png",
   "engines": {
@@ -13,7 +13,8 @@
   ],
   "activationEvents": [
     "onCommand:socBuilder.alignDeclarations",
-    "onCommand:socBuilder.instantiateModuleByName"
+    "onCommand:socBuilder.instantiateModuleByName",
+    "onCommand:socBuilder.updateInstantiation"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -25,6 +26,10 @@
       {
         "command": "socBuilder.instantiateModuleByName",
         "title": "SoCBuilder: Instantiate Module By Name"
+      },
+      {
+        "command": "socBuilder.updateInstantiation",
+        "title": "SoCBuilder: Update Instantiation"
       }
     ],
     "menus": {
@@ -36,6 +41,11 @@
         },
         {
           "command": "socBuilder.instantiateModuleByName",
+          "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/",
+          "group": "navigation"
+        },
+        {
+          "command": "socBuilder.updateInstantiation",
           "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/",
           "group": "navigation"
         }
