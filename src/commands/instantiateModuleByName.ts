@@ -22,8 +22,12 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeSearchPath(path: string): string {
+  return path.trim().replace(/^\/+|\/+$/g, "");
+}
+
 function parseModuleFromText(text: string, filePath: string): ModuleInfo | null {
-  // 只匹配真正的 module 定义行，不匹配注释里的 "module xxx"
+  // 只匹配真正的 module 定义行
   const moduleMatch = text.match(/^\s*module\s+([A-Za-z_]\w*)\b/m);
   if (!moduleMatch) {
     return null;
@@ -31,7 +35,7 @@ function parseModuleFromText(text: string, filePath: string): ModuleInfo | null 
 
   const moduleName = moduleMatch[1];
 
-  // 只匹配真正从行首开始的 module 头
+  // 支持 parameter block + port block
   const fullMatch = text.match(
     /^\s*module\s+[A-Za-z_]\w*\s*(?:#\s*\(([\s\S]*?)\))?\s*\(([\s\S]*?)\)\s*;/m
   );
@@ -111,10 +115,12 @@ function buildInstantiation(mod: ModuleInfo): string {
     const paramWidth = Math.max(...mod.params.map((p) => p.name.length));
 
     lines.push(`${mod.moduleName} #(`);
+
     mod.params.forEach((p, idx) => {
       const comma = idx === mod.params.length - 1 ? "" : ",";
       lines.push(`  .${padRight(p.name, paramWidth)} (${p.name})${comma}`);
     });
+
     lines.push(`) ${instName} (`);
   } else {
     lines.push(`${mod.moduleName} ${instName} (`);
@@ -132,21 +138,32 @@ function buildInstantiation(mod: ModuleInfo): string {
   return lines.join("\n");
 }
 
-async function findModuleInWorkspace(moduleName: string): Promise<ModuleInfo[]> {
+async function findModuleInWorkspace(
+  moduleName: string,
+  searchPath: string
+): Promise<ModuleInfo[]> {
+  const normalizedPath = normalizeSearchPath(searchPath);
+
+  const includePattern = normalizedPath
+    ? `${normalizedPath}/**/*.{sv,v,svh,vh}`
+    : "**/*.{sv,v,svh,vh}";
+
   const files = await vscode.workspace.findFiles(
-    "**/*.{sv,v,svh,vh}",
+    includePattern,
     "**/{node_modules,.git,out,dist}/**"
   );
 
   const results: ModuleInfo[] = [];
   const escapedName = escapeRegExp(moduleName);
-
-  // 更宽松：先找 module 名，再 parse
   const moduleRegex = new RegExp(`^\\s*module\\s+${escapedName}\\b`, "m");
 
   for (const file of files) {
     try {
-      const doc = await vscode.workspace.openTextDocument(file);
+      const openedDoc = vscode.workspace.textDocuments.find(
+        (doc) => doc.uri.fsPath === file.fsPath
+      );
+
+      const doc = openedDoc ?? (await vscode.workspace.openTextDocument(file));
       const text = doc.getText();
 
       if (!moduleRegex.test(text)) {
@@ -168,6 +185,16 @@ async function findModuleInWorkspace(moduleName: string): Promise<ModuleInfo[]> 
 export async function instantiateModuleByNameCommand(
   editor: vscode.TextEditor
 ): Promise<void> {
+  const searchPath = await vscode.window.showInputBox({
+    prompt: "Enter search path first (workspace-relative)",
+    placeHolder: "e.g. hw/share/rtl/fifo",
+    ignoreFocusOut: true,
+  });
+
+  if (searchPath === undefined) {
+    return;
+  }
+
   const moduleName = await vscode.window.showInputBox({
     prompt: "Enter module name",
     placeHolder: "e.g. prim_fifo_async",
@@ -178,15 +205,16 @@ export async function instantiateModuleByNameCommand(
     return;
   }
 
+  console.log("SoCBuilder searchPath:", searchPath);
   console.log("SoCBuilder search module:", moduleName);
 
-  const matches = await findModuleInWorkspace(moduleName);
+  const matches = await findModuleInWorkspace(moduleName.trim(), searchPath);
 
   console.log("SoCBuilder matches:", matches);
 
   if (matches.length === 0) {
     vscode.window.showErrorMessage(
-      `SoCBuilder: Module '${moduleName}' not found in workspace.`
+      `SoCBuilder: Module '${moduleName}' not found under path '${searchPath || "."}'.`
     );
     return;
   }
