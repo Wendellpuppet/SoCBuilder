@@ -18,12 +18,43 @@ type ModuleInfo = {
   filePath: string;
 };
 
+type FindModuleResult = {
+  modules: ModuleInfo[];
+  scannedFileCount: number;
+};
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeSearchPath(path: string): string {
   return path.trim().replace(/^\/+|\/+$/g, "");
+}
+
+async function doesSearchPathExist(searchPath: string): Promise<boolean> {
+  const normalizedPath = normalizeSearchPath(searchPath);
+
+  // 空路径表示整个 workspace，默认视为存在
+  if (!normalizedPath) {
+    return true;
+  }
+
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    return false;
+  }
+
+  for (const folder of folders) {
+    try {
+      const targetUri = vscode.Uri.joinPath(folder.uri, normalizedPath);
+      await vscode.workspace.fs.stat(targetUri);
+      return true;
+    } catch {
+      // continue
+    }
+  }
+
+  return false;
 }
 
 function parsePortNamesFromHeader(headerPortBlock: string): string[] {
@@ -327,7 +358,7 @@ function buildInstantiation(mod: ModuleInfo): string {
 async function findModuleInWorkspace(
   moduleName: string,
   searchPath: string
-): Promise<ModuleInfo[]> {
+): Promise<FindModuleResult> {
   const normalizedPath = normalizeSearchPath(searchPath);
 
   const includePattern = normalizedPath
@@ -365,7 +396,10 @@ async function findModuleInWorkspace(
     }
   }
 
-  return results;
+  return {
+    modules: results,
+    scannedFileCount: files.length,
+  };
 }
 
 export async function instantiateModuleByNameCommand(
@@ -394,16 +428,43 @@ export async function instantiateModuleByNameCommand(
   console.log("SoCBuilder searchPath:", searchPath);
   console.log("SoCBuilder search module:", moduleName);
 
-  const matches = await findModuleInWorkspace(moduleName.trim(), searchPath);
+const trimmedSearchPath = searchPath.trim();
 
-  console.log("SoCBuilder matches:", matches);
+// 先检查路径是否存在
+const pathExists = await doesSearchPathExist(trimmedSearchPath);
+if (!pathExists) {
+  vscode.window.showErrorMessage(
+    `SoCBuilder: Search path '${trimmedSearchPath || "."}' does not exist. Please check the path.`
+  );
+  return;
+}
 
-  if (matches.length === 0) {
-    vscode.window.showErrorMessage(
-      `SoCBuilder: Module '${moduleName}' not found under path '${searchPath || "."}'.`
-    );
-    return;
-  }
+const result = await findModuleInWorkspace(moduleName.trim(), trimmedSearchPath);
+const matches = result.modules;
+
+console.log("SoCBuilder scannedFileCount:", result.scannedFileCount);
+console.log("SoCBuilder matches:", matches);
+
+if (result.scannedFileCount === 0) {
+  vscode.window.showErrorMessage(
+    `SoCBuilder: Search path '${trimmedSearchPath || "."}' is valid, but no SystemVerilog/Verilog files were found under it.`
+  );
+  return;
+}
+
+if (matches.length === 0) {
+  vscode.window.showErrorMessage(
+    `SoCBuilder: Files were found under path '${trimmedSearchPath || "."}', but module '${moduleName}' was not found.`
+  );
+  return;
+}
+
+if (matches.length === 0) {
+  vscode.window.showErrorMessage(
+    `SoCBuilder: Files were found under path '${searchPath || "."}', but module '${moduleName}' was not found.`
+  );
+  return;
+}
 
   let selected: ModuleInfo;
 
