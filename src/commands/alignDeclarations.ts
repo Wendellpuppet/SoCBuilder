@@ -3,6 +3,7 @@ import { padRight } from "../utils/text";
 
 type ParsedDecl = {
   indent: string;
+  dirPart: string;
   typePart: string;
   ranges: string[];
   namePart: string;
@@ -50,14 +51,36 @@ function parseDeclarationLine(line: string): ParsedDecl | null {
   const beforeName = body.slice(0, body.length - namePart.length).trim();
 
   const ranges = beforeName.match(/\[[^\]]+\]/g) || [];
-  const typePart = beforeName.replace(/\[[^\]]+\]/g, "").trim();
+  const withoutRanges = beforeName
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  if (!typePart) {
+  if (!withoutRanges) {
+    return null;
+  }
+
+  const tokens = withoutRanges.split(/\s+/);
+
+  let dirPart = "";
+  let typePart = "";
+
+  if (/^(input|output|inout)$/.test(tokens[0])) {
+    dirPart = tokens[0];
+    typePart = tokens.slice(1).join(" "); // 允许为空，例如 input a;
+  } else {
+    dirPart = "";
+    typePart = tokens.join(" ");
+  }
+
+  // 至少要有方向或类型
+  if (!dirPart && !typePart) {
     return null;
   }
 
   return {
     indent,
+    dirPart,
     typePart,
     ranges,
     namePart,
@@ -151,10 +174,12 @@ function alignDeclarationBlock(text: string): string {
     return text;
   }
 
+  const GAP = " ";
+
+  const dirWidth = Math.max(...validDecls.map((x) => x.dirPart.length));
   const typeWidth = Math.max(...validDecls.map((x) => x.typePart.length));
   const maxDims = Math.max(...validDecls.map((x) => x.ranges.length));
 
-  // 每一维单独算宽度：第1维、第2维、第3维...
   const dimWidths = Array(maxDims).fill(0);
 
   for (const item of validDecls) {
@@ -174,22 +199,27 @@ function alignDeclarationBlock(text: string): string {
 
     const pieces: string[] = [];
     pieces.push(item.indent);
-    pieces.push(padRight(item.typePart, typeWidth));
-    pieces.push(" ");
 
-    // 每个 [] 单独占一列
+    // dir
+    if (dirWidth > 0) {
+      pieces.push(padRight(item.dirPart, dirWidth));
+      pieces.push(GAP);
+    }
+
+    // type
+    if (typeWidth > 0) {
+      pieces.push(padRight(item.typePart, typeWidth));
+      pieces.push(GAP);
+    }
+
+    // ranges
     for (let d = 0; d < maxDims; d++) {
       const r = item.ranges[d] || "";
       pieces.push(padRight(r, dimWidths[d]));
-
-      // 最后一维后面再补两个空格接变量名
-      if (d !== maxDims - 1) {
-        pieces.push(" ");
-      } else {
-        pieces.push(" ");
-      }
+      pieces.push(GAP);
     }
 
+    // name
     pieces.push(item.namePart);
     pieces.push(item.suffix);
 
