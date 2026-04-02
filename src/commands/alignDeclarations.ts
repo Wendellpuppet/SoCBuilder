@@ -12,6 +12,7 @@ type ParsedDecl = {
 
 type ParsedParam = {
   indent: string;
+  keyword: string;
   typePart: string;
   namePart: string;
   valuePart: string;
@@ -86,19 +87,16 @@ function parseParameterLine(line: string): ParsedParam | null {
   const suffix = semicolonMatch[0];
   const body = trimmed.slice(0, trimmed.length - suffix.length).trim();
 
-  if (!body.startsWith("parameter ")) {
+  const keywordMatch = body.match(/^(parameter|localparam)\s+/);
+  if (!keywordMatch) {
     return null;
   }
 
-  const afterKeyword = body.slice("parameter".length).trim();
+  const keyword = keywordMatch[1];
+  const afterKeyword = body.slice(keyword.length).trim();
 
-  // 先匹配“无类型” parameter
-  // 例如:
-  // parameter C = 4;
-  const noTypeMatch = afterKeyword.match(
-    /^([A-Za-z_]\w*)\s*(=\s*.+)?$/
-  );
-
+  // 先匹配无类型
+  const noTypeMatch = afterKeyword.match(/^([A-Za-z_]\w*)\s*(=\s*.+)?$/);
   if (noTypeMatch) {
     const namePart = noTypeMatch[1];
     const rawValuePart = noTypeMatch[2] ? noTypeMatch[2].trim() : "";
@@ -108,6 +106,7 @@ function parseParameterLine(line: string): ParsedParam | null {
 
     return {
       indent,
+      keyword,
       typePart: "",
       namePart,
       valuePart,
@@ -116,14 +115,10 @@ function parseParameterLine(line: string): ParsedParam | null {
     };
   }
 
-  // 再匹配“有类型” parameter
-  // 例如:
-  // parameter int A = 4;
-  // parameter logic [7:0] WIDTH = 8;
+  // 再匹配有类型
   const typedMatch = afterKeyword.match(
     /^(.+?)\s+([A-Za-z_]\w*)\s*(=\s*.+)?$/
   );
-
   if (!typedMatch) {
     return null;
   }
@@ -137,6 +132,7 @@ function parseParameterLine(line: string): ParsedParam | null {
 
   return {
     indent,
+    keyword,
     typePart,
     namePart,
     valuePart,
@@ -211,8 +207,8 @@ function alignParameterBlock(lines: string[]): string[] {
     return lines;
   }
 
-  // 整个 parameter block 统一缩进
   const blockIndent = validParams[0].indent;
+  const keywordWidth = Math.max(...validParams.map((x) => x.keyword.length));
   const typeWidth = Math.max(...validParams.map((x) => x.typePart.length));
   const nameWidth = Math.max(...validParams.map((x) => x.namePart.length));
 
@@ -227,9 +223,9 @@ function alignParameterBlock(lines: string[]): string[] {
 
     const pieces: string[] = [];
     pieces.push(blockIndent);
-    pieces.push("parameter ");
+    pieces.push(padRight(item.keyword, keywordWidth));
+    pieces.push(" ");
 
-    // 有类型 / 无类型都统一占位
     if (typeWidth > 0) {
       pieces.push(padRight(item.typePart, typeWidth));
       pieces.push(" ");
