@@ -14,7 +14,8 @@
   "activationEvents": [
     "onCommand:socBuilder.alignDeclarations",
     "onCommand:socBuilder.instantiateModuleByName",
-    "onCommand:socBuilder.updateInstantiation"
+    "onCommand:socBuilder.updateInstantiation",
+    "onCommand:socBuilder.declareSignals"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -30,6 +31,10 @@
       {
         "command": "socBuilder.updateInstantiation",
         "title": "SoCBuilder: Update Instantiation"
+      },
+      {
+        "command": "socBuilder.declareSignals",
+        "title": "SoCBuilder: Declare Signals"
       }
     ],
     "menus": {
@@ -60,6 +65,16 @@
       {
         "command": "socBuilder.instantiateModuleByName",
         "key": "ctrl+alt+i",
+        "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/"
+      },
+      {
+        "command": "socBuilder.updateInstantiation",
+        "key": "ctrl+alt+u",
+        "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/"
+      },
+      {
+        "command": "socBuilder.declareSignals",
+        "key": "ctrl+alt+d",
         "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/"
       }
     ]
