@@ -16,6 +16,15 @@ Automatically aligns signal declarations to improve readability.
 logic a;
 logic [7:0] b;
 logic [7:0] [3:0] c;
+
+module demo #(
+  parameter int Width = 8,
+  parameter bit Enable = 1
+) (
+  input clk_i,
+  input logic [Width-1:0] data_i,
+  output logic ready_o
+);
 ```
 
 #### Before:
@@ -37,6 +46,7 @@ logic [66:0] [4:0] [5:0] d;
 ```
 
 ✔ Multi-dimension ranges aligned independently
+✔ Module parameter and port lists are supported
 ✔ Clean column-based formatting
 
 ---
@@ -88,12 +98,50 @@ a #(
 
 ---
 
+### 3. Declare Signals
+
+Automatically declares missing internal signals based on variable usage in
+assignments, procedural blocks, and module instantiations.
+
+#### Example:
+
+```sv
+assign out_data[3:0] = in_data;
+
+sub u_sub (
+  .data_i(inst_data),
+  .valid_i
+);
+
+always_ff @(posedge clk_i) begin
+  done_q <= calc_done(in_data);
+end
+```
+
+Generated declarations:
+
+```sv
+wire out_data;
+wire in_data;
+wire inst_data;
+wire valid_i;
+reg done_q;
+```
+
+✔ Detects missing assignment targets and expression inputs
+✔ Detects named and shorthand module port connections
+✔ Filters constants, function calls, package references, and hierarchical names
+
+---
+
 ## ⌨️ Keybindings
 
 | Command            | Shortcut         |
 | ------------------ | ---------------- |
 | Align Declarations | `Ctrl + Alt + A` |
 | Instantiate Module | `Ctrl + Alt + I` |
+| Update Instantiation | `Ctrl + Alt + U` |
+| Declare Signals | `Ctrl + Alt + D` |
 
 ---
 

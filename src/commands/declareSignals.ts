@@ -100,9 +100,34 @@ function stripComments(line: string): string {
   return line.replace(/\/\/.*$/, "").trim();
 }
 
+function stripSystemVerilogLiterals(text: string): string {
+  return text
+    .replace(/"([^"\\]|\\.)*"/g, " ")
+    .replace(/\b\d*'[sS]?[bBoOdDhH]\s*[0-9a-fA-F_xXzZ?]+\b/g, " ")
+    .replace(/\b\d+(?:_\d+)*\b/g, " ");
+}
+
 function extractIdentifiers(text: string): string[] {
-  const matches = text.match(/\b[A-Za-z_]\w*\b/g);
-  return matches ?? [];
+  const cleaned = stripSystemVerilogLiterals(text);
+  const ids: string[] = [];
+
+  for (const match of cleaned.matchAll(/\b[A-Za-z_]\w*\b/g)) {
+    const id = match[0];
+    const index = match.index ?? 0;
+    const prevChar = cleaned[index - 1] ?? "";
+    const nextChar = cleaned[index + id.length] ?? "";
+    const prevTwo = cleaned.slice(Math.max(0, index - 2), index);
+    const nextTwo = cleaned.slice(index + id.length, index + id.length + 2);
+    const after = cleaned.slice(index + id.length);
+
+    if (prevChar === "$" || prevChar === "." || nextChar === ".") continue;
+    if (prevTwo === "::" || nextTwo === "::") continue;
+    if (/^\s*\(/.test(after)) continue;
+
+    ids.push(id);
+  }
+
+  return ids;
 }
 
 function isValidSignalIdentifier(id: string): boolean {
@@ -125,6 +150,15 @@ function extractRangesFromText(text: string): string[] {
   return text.match(/\[[^\]]+\]/g) || [];
 }
 
+function stripTrailingTerminator(line: string): string {
+  return line.replace(/[;,]\s*$/, "").trim();
+}
+
+function extractBaseSignalName(text: string): string | null {
+  const match = text.trim().match(/^([A-Za-z_]\w*)/);
+  return match ? match[1] : null;
+}
+
 function findDeclaredSignals(documentText: string): Map<string, SignalInfo> {
   const declared = new Map<string, SignalInfo>();
 
@@ -134,7 +168,7 @@ function findDeclaredSignals(documentText: string): Map<string, SignalInfo> {
 
     // 1) parameter / localparam 也算“已知名字”，但不作为内部信号候选
     if (/^(parameter|localparam)\b/.test(line)) {
-      line = line.replace(/;\s*$/, "").trim();
+      line = stripTrailingTerminator(line);
 
       const keywordMatch = line.match(/^(parameter|localparam)\s+/);
       if (!keywordMatch) continue;
@@ -162,8 +196,9 @@ function findDeclaredSignals(documentText: string): Map<string, SignalInfo> {
     // wire a;
     // reg [7:0] b;
     // logic [3:0] c;
-    let m = line.match(
-      /^(wire|reg|logic)\b(.*?)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*;\s*$/
+    const internalDeclLine = stripTrailingTerminator(line);
+    let m = internalDeclLine.match(
+      /^(wire|reg|logic)\b(.*?)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*$/
     );
     if (m) {
       const declToken = m[1];
@@ -183,7 +218,8 @@ function findDeclaredSignals(documentText: string): Map<string, SignalInfo> {
     // input a;
     // output logic [7:0] b;
     // input a, b;
-    m = line.match(/^(input|output|inout)\s+(.+?)\s*;\s*$/);
+    const portDeclLine = stripTrailingTerminator(line);
+    m = portDeclLine.match(/^(input|output|inout)\s+(.+?)\s*$/);
     if (m) {
       const rest = m[2].trim();
 
@@ -228,6 +264,41 @@ function tryInferRangesFromSimpleRhs(
 
   const info = declared.get(trimmed);
   return info ? info.ranges : [];
+}
+
+function addIdentifiersAsCandidates(
+  text: string,
+  kind: DeclKind,
+  declared: Map<string, SignalInfo>,
+  addCandidate: (name: string, kind: DeclKind, ranges: string[]) => void
+): void {
+  const ids = extractIdentifiers(text);
+  for (const id of ids) {
+    if (!isValidSignalIdentifier(id)) continue;
+    if (declared.has(id)) continue;
+    addCandidate(id, kind, []);
+  }
+}
+
+function scanNamedPortConnections(
+  line: string,
+  declared: Map<string, SignalInfo>,
+  addCandidate: (name: string, kind: DeclKind, ranges: string[]) => void
+): void {
+  const connectionPattern = /(^|[\s,(])\.(\w+)\s*\(\s*([^)]*?)\s*\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = connectionPattern.exec(line)) !== null) {
+    const expression = match[3].trim();
+    if (!expression) continue;
+
+    addIdentifiersAsCandidates(expression, "wire", declared, addCandidate);
+  }
+
+  const shorthandPattern = /(^|[\s,(])\.(\w+)\b(?!\s*\()/g;
+  while ((match = shorthandPattern.exec(line)) !== null) {
+    addCandidate(match[2], "wire", []);
+  }
 }
 
 function makeDeclarationLine(sig: MissingSignal): string {
@@ -287,23 +358,22 @@ function findMissingSignals(documentText: string): MissingSignal[] {
 
     // assign lhs = rhs;
     if (line.startsWith("assign")) {
-      const assignMatch = line.match(/^assign\s+([A-Za-z_]\w*)\s*=\s*(.+?)\s*;?$/);
+      const assignMatch = line.match(/^assign\s+(.+?)\s*=\s*(.+?)\s*;?$/);
       if (assignMatch) {
-        const lhs = assignMatch[1];
+        const lhs = extractBaseSignalName(assignMatch[1]);
         const rhs = assignMatch[2];
         const ranges = tryInferRangesFromSimpleRhs(rhs, declared);
-        addCandidate(lhs, "wire", ranges);
+        if (lhs) {
+          addCandidate(lhs, "wire", ranges);
+        }
 
         // RHS 也可能有未声明简单信号
-        const ids = extractIdentifiers(rhs);
-        for (const id of ids) {
-          if (!isValidSignalIdentifier(id)) continue;
-          if (declared.has(id)) continue;
-          addCandidate(id, "wire", []);
-        }
+        addIdentifiersAsCandidates(rhs, "wire", declared, addCandidate);
       }
       continue;
     }
+
+    scanNamedPortConnections(line, declared, addCandidate);
 
     // always 起始
     if (
@@ -338,29 +408,22 @@ function findMissingSignals(documentText: string): MissingSignal[] {
     // always 内部
     if (inAlwaysBlock) {
       line = line.replace(/begin\s*:\s*\w+/g, "begin");
+      scanNamedPortConnections(line, declared, addCandidate);
 
       // lhs <= rhs; 或 lhs = rhs;
-      const assignMatch = line.match(/^([A-Za-z_]\w*)\s*(<=|=)\s*(.+?)\s*;?$/);
+      const assignMatch = line.match(/^(.+?)\s*(<=|=)\s*(.+?)\s*;?$/);
       if (assignMatch) {
-        const lhs = assignMatch[1];
+        const lhs = extractBaseSignalName(assignMatch[1]);
         const rhs = assignMatch[3];
         const ranges = tryInferRangesFromSimpleRhs(rhs, declared);
-        addCandidate(lhs, currentAlwaysKind, ranges);
-
-        const ids = extractIdentifiers(rhs);
-        for (const id of ids) {
-          if (!isValidSignalIdentifier(id)) continue;
-          if (declared.has(id)) continue;
-          addCandidate(id, "wire", []);
+        if (lhs) {
+          addCandidate(lhs, currentAlwaysKind, ranges);
         }
+
+        addIdentifiersAsCandidates(rhs, "wire", declared, addCandidate);
       } else {
         // 非赋值行也扫一下 RHS 风格标识符
-        const ids = extractIdentifiers(line);
-        for (const id of ids) {
-          if (!isValidSignalIdentifier(id)) continue;
-          if (declared.has(id)) continue;
-          addCandidate(id, "wire", []);
-        }
+        addIdentifiersAsCandidates(line, "wire", declared, addCandidate);
       }
 
       if (/\bbegin\b/.test(line)) {
@@ -378,9 +441,7 @@ function findMissingSignals(documentText: string): MissingSignal[] {
     }
   }
 
-  return Array.from(candidates.values()).sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
+  return Array.from(candidates.values());
 }
 
 function findInsertPosition(document: vscode.TextDocument): vscode.Position {

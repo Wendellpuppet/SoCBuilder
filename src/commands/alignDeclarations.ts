@@ -21,6 +21,48 @@ type ParsedParam = {
   original: string;
 };
 
+type LineParts = {
+  body: string;
+  suffix: string;
+  hasTerminator: boolean;
+};
+
+function splitBodyAndSuffix(
+  trimmed: string,
+  allowBareLine: boolean
+): LineParts | null {
+  const terminatorMatch = trimmed.match(/[;,](\s*\/\/.*)?$/);
+  if (terminatorMatch) {
+    const suffix = terminatorMatch[0];
+    const body = trimmed.slice(0, trimmed.length - suffix.length).trim();
+
+    return {
+      body,
+      suffix,
+      hasTerminator: true,
+    };
+  }
+
+  if (!allowBareLine) {
+    return null;
+  }
+
+  const commentMatch = trimmed.match(/^(.*?)(\s*\/\/.*)$/);
+  if (commentMatch) {
+    return {
+      body: commentMatch[1].trim(),
+      suffix: commentMatch[2],
+      hasTerminator: false,
+    };
+  }
+
+  return {
+    body: trimmed,
+    suffix: "",
+    hasTerminator: false,
+  };
+}
+
 function parseDeclarationLine(line: string): ParsedDecl | null {
   if (/^\s*$/.test(line)) {
     return null;
@@ -34,13 +76,12 @@ function parseDeclarationLine(line: string): ParsedDecl | null {
 
   const trimmed = line.trim();
 
-  const semicolonMatch = trimmed.match(/;(\s*\/\/.*)?$/);
-  if (!semicolonMatch) {
+  const lineParts = splitBodyAndSuffix(trimmed, true);
+  if (!lineParts) {
     return null;
   }
 
-  const suffix = semicolonMatch[0];
-  const body = trimmed.slice(0, trimmed.length - suffix.length).trim();
+  const { body, suffix, hasTerminator } = lineParts;
 
   const nameMatch = body.match(/([A-Za-z_]\w*)$/);
   if (!nameMatch) {
@@ -73,6 +114,12 @@ function parseDeclarationLine(line: string): ParsedDecl | null {
     typePart = tokens.join(" ");
   }
 
+  // Bare lines are only safe to treat as module interface ports when they
+  // carry an explicit direction, e.g. the final "output logic done_o".
+  if (!hasTerminator && !dirPart) {
+    return null;
+  }
+
   // 至少要有方向或类型
   if (!dirPart && !typePart) {
     return null;
@@ -102,13 +149,12 @@ function parseParameterLine(line: string): ParsedParam | null {
 
   const trimmed = line.trim();
 
-  const semicolonMatch = trimmed.match(/;(\s*\/\/.*)?$/);
-  if (!semicolonMatch) {
+  const lineParts = splitBodyAndSuffix(trimmed, true);
+  if (!lineParts) {
     return null;
   }
 
-  const suffix = semicolonMatch[0];
-  const body = trimmed.slice(0, trimmed.length - suffix.length).trim();
+  const { body, suffix } = lineParts;
 
   const keywordMatch = body.match(/^(parameter|localparam)\s+/);
   if (!keywordMatch) {
@@ -301,10 +347,18 @@ function alignMixedBlock(text: string): string {
       const current = lines[i];
       const currentIsParam = parseParameterLine(current) !== null;
       const currentIsDecl = parseDeclarationLine(current) !== null;
+      const currentIsSeparator =
+        /^\s*$/.test(current) || /^\s*\/\//.test(current);
 
       if (
         (blockType === "param" && currentIsParam) ||
         (blockType === "decl" && currentIsDecl)
+      ) {
+        block.push(current);
+        i++;
+      } else if (
+        currentIsSeparator &&
+        hasNextBlockItem(lines, i + 1, blockType)
       ) {
         block.push(current);
         i++;
@@ -316,11 +370,31 @@ function alignMixedBlock(text: string): string {
     if (blockType === "param") {
       output.push(...alignParameterBlock(block));
     } else {
-output.push(...alignDeclarationBlock(block.join("\n")).split(/\r?\n/));
+      output.push(...alignDeclarationBlock(block.join("\n")).split(/\r?\n/));
     }
   }
 
   return output.join("\n");
+}
+
+function hasNextBlockItem(
+  lines: string[],
+  start: number,
+  blockType: "param" | "decl"
+): boolean {
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (/^\s*$/.test(line) || /^\s*\/\//.test(line)) {
+      continue;
+    }
+
+    return blockType === "param"
+      ? parseParameterLine(line) !== null
+      : parseDeclarationLine(line) !== null;
+  }
+
+  return false;
 }
 
 export async function alignDeclarationsCommand(

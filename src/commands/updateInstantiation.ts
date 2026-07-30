@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { padRight } from "../utils/text";
 
 type NamedConnection = {
@@ -30,12 +31,102 @@ type ModuleInfo = {
   filePath: string;
 };
 
+type SearchTarget = {
+  displayPath: string;
+  files?: vscode.Uri[];
+  includePattern?: vscode.GlobPattern;
+};
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeSearchPath(path: string): string {
-  return path.trim().replace(/^\/+|\/+$/g, "");
+  const normalized = path
+    .trim()
+    .replace(/^\.\//, "")
+    .replace(/^\/+|\/+$/g, "");
+
+  return normalized === "." ? "" : normalized;
+}
+
+function isVerilogFilePath(filePath: string): boolean {
+  return /\.(sv|v|svh|vh)$/i.test(filePath);
+}
+
+async function resolveSearchTarget(
+  searchPath: string
+): Promise<SearchTarget | null> {
+  const trimmedPath = searchPath.trim();
+  const normalizedPath = normalizeSearchPath(trimmedPath);
+
+  if (!normalizedPath && !path.isAbsolute(trimmedPath)) {
+    return {
+      displayPath: ".",
+      includePattern: "**/*.{sv,v,svh,vh}",
+    };
+  }
+
+  if (path.isAbsolute(trimmedPath)) {
+    const targetUri = vscode.Uri.file(trimmedPath);
+
+    try {
+      const stat = await vscode.workspace.fs.stat(targetUri);
+
+      if (stat.type === vscode.FileType.File) {
+        if (!isVerilogFilePath(targetUri.fsPath)) {
+          return null;
+        }
+
+        return {
+          displayPath: trimmedPath,
+          files: [targetUri],
+        };
+      }
+
+      return {
+        displayPath: trimmedPath,
+        includePattern: new vscode.RelativePattern(
+          targetUri,
+          "**/*.{sv,v,svh,vh}"
+        ),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    return null;
+  }
+
+  for (const folder of folders) {
+    try {
+      const targetUri = vscode.Uri.joinPath(folder.uri, normalizedPath);
+      const stat = await vscode.workspace.fs.stat(targetUri);
+
+      if (stat.type === vscode.FileType.File) {
+        if (!isVerilogFilePath(targetUri.fsPath)) {
+          return null;
+        }
+
+        return {
+          displayPath: normalizedPath,
+          files: [targetUri],
+        };
+      }
+
+      return {
+        displayPath: normalizedPath,
+        includePattern: `${normalizedPath}/**/*.{sv,v,svh,vh}`,
+      };
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
 }
 
 function parseNamedConnections(block: string): NamedConnection[] {
@@ -303,18 +394,14 @@ function parseModuleFromText(text: string, filePath: string): ModuleInfo | null 
 
 async function findModuleInWorkspace(
   moduleName: string,
-  searchPath: string
+  searchTarget: SearchTarget
 ): Promise<ModuleInfo[]> {
-  const normalizedPath = normalizeSearchPath(searchPath);
-
-  const includePattern = normalizedPath
-    ? `${normalizedPath}/**/*.{sv,v,svh,vh}`
-    : "**/*.{sv,v,svh,vh}";
-
-  const files = await vscode.workspace.findFiles(
-    includePattern,
-    "**/{node_modules,.git,out,dist}/**"
-  );
+  const files =
+    searchTarget.files ??
+    (await vscode.workspace.findFiles(
+      searchTarget.includePattern ?? "**/*.{sv,v,svh,vh}",
+      "**/{node_modules,.git,out,dist}/**"
+    ));
 
   const results: ModuleInfo[] = [];
   const escapedName = escapeRegExp(moduleName);
@@ -406,8 +493,8 @@ export async function updateInstantiationCommand(
   }
 
   const searchPath = await vscode.window.showInputBox({
-    prompt: "Enter search path (workspace-relative)",
-    placeHolder: "e.g. hw/share/rtl/fifo",
+    prompt: "Enter search path (workspace-relative or absolute)",
+    placeHolder: "e.g. example or /path/to/rtl",
     ignoreFocusOut: true,
   });
 
@@ -415,11 +502,19 @@ export async function updateInstantiationCommand(
     return;
   }
 
-  const matches = await findModuleInWorkspace(parsedInst.moduleName, searchPath);
+  const searchTarget = await resolveSearchTarget(searchPath);
+  if (!searchTarget) {
+    vscode.window.showErrorMessage(
+      `SoCBuilder: Search path '${searchPath.trim() || "."}' does not exist or is not a Verilog/SystemVerilog file. Please check the path.`
+    );
+    return;
+  }
+
+  const matches = await findModuleInWorkspace(parsedInst.moduleName, searchTarget);
 
   if (matches.length === 0) {
     vscode.window.showErrorMessage(
-      `SoCBuilder: Module '${parsedInst.moduleName}' not found under path '${searchPath || "."}'.`
+      `SoCBuilder: Module '${parsedInst.moduleName}' not found under path '${searchTarget.displayPath}'.`
     );
     return;
   }
