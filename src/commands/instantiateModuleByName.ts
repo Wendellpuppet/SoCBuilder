@@ -400,7 +400,7 @@ function buildInstantiation(mod: ModuleInfo): string {
 
     mod.params.forEach((p, idx) => {
       const comma = idx === mod.params.length - 1 ? "" : ",";
-      lines.push(`  .${padRight(p.name, paramWidth)} (${p.name})${comma}`);
+      lines.push(`  .${padRight(p.name, paramWidth)}(${p.name})${comma}`);
     });
 
     lines.push(`) ${instName} (`);
@@ -410,15 +410,44 @@ function buildInstantiation(mod: ModuleInfo): string {
 
   if (mod.ports.length > 0) {
     const portWidth = Math.max(...mod.ports.map((p) => p.name.length));
+    const rangeTexts = mod.ports.map(getPortRangeText);
+    const rangeWidth = Math.max(...rangeTexts.map((range) => range.length));
+    const portBodies = mod.ports.map((p, idx) => {
+      const comma = idx === mod.ports.length - 1 ? " " : ",";
+      return `  .${padRight(p.name, portWidth)}(${p.name})${comma}`;
+    });
+    const commentColumn = Math.max(...portBodies.map((body) => body.length));
 
     mod.ports.forEach((p, idx) => {
-      const comma = idx === mod.ports.length - 1 ? "" : ",";
-      lines.push(`  .${padRight(p.name, portWidth)} (${p.name})${comma}`);
+      lines.push(
+        `${padRight(portBodies[idx], commentColumn)} ${buildPortDirectionComment(
+          p,
+          rangeTexts[idx],
+          rangeWidth
+        )}`
+      );
     });
   }
 
   lines.push(`);`);
   return lines.join("\n");
+}
+
+function getPortRangeText(port: PortInfo): string {
+  const ranges = port.typePart.match(/\[[^\]]+\]/g) || [];
+  return ranges.join(" ");
+}
+
+function buildPortDirectionComment(
+  port: PortInfo,
+  rangeText: string,
+  rangeWidth: number
+): string {
+  if (rangeWidth === 0) {
+    return `// ${port.direction}`;
+  }
+
+  return `// ${padRight(rangeText, rangeWidth)} ${port.direction}`;
 }
 
 async function findModuleInWorkspace(
