@@ -85,16 +85,17 @@ Generated:
 
 ```sv
 a #(
-  .A (A)
+  .A(A)
 ) u_a (
-  .a (),
-  .b ()
+  .a(), // input
+  .b()  // output
 );
 ```
 
 ✔ Supports parameterized modules
 ✔ Supports multi-file workspace search
 ✔ Handles duplicate module names via selection
+✔ Adds port direction and width comments for generated instantiations
 
 ---
 
@@ -109,8 +110,9 @@ assignments, procedural blocks, and module instantiations.
 assign out_data[3:0] = in_data;
 
 sub u_sub (
-  .data_i(inst_data),
-  .valid_i
+  .data_i(inst_data),       // [31:0] input
+  .data_o(data_from_sub),   // [31:0] output
+  .ready_o(ready_from_sub)  //        output
 );
 
 always_ff @(posedge clk_i) begin
@@ -123,13 +125,25 @@ Generated declarations:
 ```sv
 wire out_data;
 wire in_data;
-wire inst_data;
-wire valid_i;
+wire [31:0] data_from_sub;
+wire ready_from_sub;
 reg done_q;
 ```
 
+SystemVerilog mode:
+
+```sv
+logic out_data;
+logic in_data;
+logic [31:0] data_from_sub;
+logic ready_from_sub;
+logic done_q;
+```
+
 ✔ Detects missing assignment targets and expression inputs
-✔ Detects named and shorthand module port connections
+✔ Detects named and shorthand output module port connections
+✔ Uses instantiation comments like `// [31:0] output` to identify output connections and widths
+✔ Supports Verilog `wire`/`reg` declarations and SystemVerilog `logic` declarations
 ✔ Filters constants, function calls, package references, and hierarchical names
 
 ---
@@ -168,9 +182,10 @@ prim_fifo_sync_cnt #(
 );
 ```
 
-✔ Aligns opening and closing parentheses
+✔ Aligns opening parentheses while keeping the longest name tight
+✔ Aligns closing parentheses and comments
 ✔ Supports parameter and port connection blocks
-✔ Expands shorthand connections to explicit `.port (port)` form
+✔ Expands shorthand connections to explicit `.port(port)` form
 
 ---
 
