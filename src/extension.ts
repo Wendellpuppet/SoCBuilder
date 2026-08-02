@@ -3,6 +3,7 @@ import { alignDeclarationsCommand } from "./commands/alignDeclarations";
 import { instantiateModuleByNameCommand } from "./commands/instantiateModuleByName";
 import { updateInstantiationCommand } from "./commands/updateInstantiation";
 import { declareSignalsCommand } from "./commands/declareSignals";
+import { alignInstantiationCommand } from "./commands/alignInstantiation";
 
 export function activate(context: vscode.ExtensionContext) {
   const alignDeclarationsDisposable = vscode.commands.registerTextEditorCommand(
@@ -28,11 +29,18 @@ export function activate(context: vscode.ExtensionContext) {
       declareSignalsCommand
     );
 
+  const alignInstantiationDisposable =
+    vscode.commands.registerTextEditorCommand(
+      "socBuilder.alignInstantiation",
+      alignInstantiationCommand
+    );
+
   context.subscriptions.push(
     alignDeclarationsDisposable,
     instantiateModuleByNameDisposable,
     updateInstantiationDisposable,
-    declareSignalsDisposable
+    declareSignalsDisposable,
+    alignInstantiationDisposable
   );
 }
 

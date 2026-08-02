@@ -2,7 +2,7 @@
   "name": "socbuilder",
   "displayName": "SoCBuilder",
   "description": "SystemVerilog productivity tools for SoC design (align, instantiate, etc.)",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "publisher": "WendellZhao",
   "icon": "images/icon.png",
   "engines": {
@@ -15,7 +15,8 @@
     "onCommand:socBuilder.alignDeclarations",
     "onCommand:socBuilder.instantiateModuleByName",
     "onCommand:socBuilder.updateInstantiation",
-    "onCommand:socBuilder.declareSignals"
+    "onCommand:socBuilder.declareSignals",
+    "onCommand:socBuilder.alignInstantiation"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -35,6 +36,10 @@
       {
         "command": "socBuilder.declareSignals",
         "title": "SoCBuilder: Declare Signals"
+      },
+      {
+        "command": "socBuilder.alignInstantiation",
+        "title": "SoCBuilder: Align Instantiation"
       }
     ],
     "menus": {
@@ -51,6 +56,11 @@
         },
         {
           "command": "socBuilder.updateInstantiation",
+          "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/",
+          "group": "navigation"
+        },
+        {
+          "command": "socBuilder.alignInstantiation",
           "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/",
           "group": "navigation"
         }
@@ -75,6 +85,11 @@
       {
         "command": "socBuilder.declareSignals",
         "key": "ctrl+alt+d",
+        "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/"
+      },
+      {
+        "command": "socBuilder.alignInstantiation",
+        "key": "ctrl+alt+l",
         "when": "editorTextFocus && editorLangId =~ /verilog|systemverilog/"
       }
     ]

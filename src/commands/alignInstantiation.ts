@@ -1,0 +1,148 @@
+import * as vscode from "vscode";
+import { padRight } from "../utils/text";
+
+type ParsedConnection = {
+  indent: string;
+  name: string;
+  expr: string;
+  comma: string;
+  comment: string;
+  shorthand: boolean;
+};
+
+function parseConnectionLine(line: string): ParsedConnection | null {
+  if (/^\s*$/.test(line) || /^\s*\/\//.test(line)) {
+    return null;
+  }
+
+  const match = line.match(
+    /^(\s*)\.([A-Za-z_]\w*)(?:\s*\((.*)\))?\s*(,?)(\s*\/\/.*)?$/
+  );
+  if (!match) {
+    return null;
+  }
+
+  const rawExpr = match[3];
+  const shorthand = rawExpr === undefined;
+
+  return {
+    indent: match[1],
+    name: match[2],
+    expr: shorthand ? match[2] : rawExpr.trim(),
+    comma: match[4] ?? "",
+    comment: match[5] ?? "",
+    shorthand,
+  };
+}
+
+function alignConnectionBlock(lines: string[]): string[] {
+  const parsed = lines.map(parseConnectionLine);
+  const validConnections = parsed.filter(
+    (item): item is ParsedConnection => item !== null
+  );
+
+  if (validConnections.length === 0) {
+    return lines;
+  }
+
+  const nameWidth = Math.max(...validConnections.map((item) => item.name.length));
+  const exprWidth = Math.max(...validConnections.map((item) => item.expr.length));
+  const output: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const item = parsed[i];
+    if (!item) {
+      output.push(lines[i]);
+      continue;
+    }
+
+    const pieces = [
+      item.indent,
+      ".",
+      padRight(item.name, nameWidth),
+      "(",
+      padRight(item.expr, exprWidth),
+      ")",
+      item.comma,
+      item.comment,
+    ];
+
+    output.push(pieces.join(""));
+  }
+
+  return output;
+}
+
+function hasNextConnection(lines: string[], start: number): boolean {
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (/^\s*$/.test(line) || /^\s*\/\//.test(line)) {
+      continue;
+    }
+
+    return parseConnectionLine(line) !== null;
+  }
+
+  return false;
+}
+
+function alignInstantiationBlock(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const output: string[] = [];
+
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (!parseConnectionLine(line)) {
+      output.push(line);
+      i++;
+      continue;
+    }
+
+    const block: string[] = [];
+
+    while (i < lines.length) {
+      const current = lines[i];
+      const isConnection = parseConnectionLine(current) !== null;
+      const isSeparator = /^\s*$/.test(current) || /^\s*\/\//.test(current);
+
+      if (isConnection) {
+        block.push(current);
+        i++;
+      } else if (isSeparator && hasNextConnection(lines, i + 1)) {
+        block.push(current);
+        i++;
+      } else {
+        break;
+      }
+    }
+
+    output.push(...alignConnectionBlock(block));
+  }
+
+  return output.join("\n");
+}
+
+export async function alignInstantiationCommand(
+  editor: vscode.TextEditor
+): Promise<void> {
+  const document = editor.document;
+  const selection = editor.selection;
+
+  if (selection.isEmpty) {
+    vscode.window.showInformationMessage(
+      "SoCBuilder: Please select an instantiation block to align."
+    );
+    return;
+  }
+
+  const selectedText = document.getText(selection);
+  const alignedText = alignInstantiationBlock(selectedText);
+
+  await editor.edit((editBuilder) => {
+    editBuilder.replace(selection, alignedText);
+  });
+}

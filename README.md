@@ -134,6 +134,46 @@ reg done_q;
 
 ---
 
+### 4. Align Instantiation
+
+Aligns named parameter and port connections inside module instantiations.
+
+#### Before:
+
+```sv
+prim_fifo_sync_cnt #(
+  .Depth(Depth),
+  .Secure(Secure),
+  .NeverClears(NeverClears)
+) u_fifo_cnt (
+  .clk_i,
+  .rst_ni,
+  .incr_wptr_i(fifo_incr_wptr),
+  .empty_o(fifo_empty)
+);
+```
+
+#### After:
+
+```sv
+prim_fifo_sync_cnt #(
+  .Depth      (Depth      ),
+  .Secure     (Secure     ),
+  .NeverClears(NeverClears)
+) u_fifo_cnt (
+  .clk_i      (clk_i         ),
+  .rst_ni     (rst_ni        ),
+  .incr_wptr_i(fifo_incr_wptr),
+  .empty_o    (fifo_empty    )
+);
+```
+
+✔ Aligns opening and closing parentheses
+✔ Supports parameter and port connection blocks
+✔ Expands shorthand connections to explicit `.port (port)` form
+
+---
+
 ## ⌨️ Keybindings
 
 | Command            | Shortcut         |
@@ -142,6 +182,7 @@ reg done_q;
 | Instantiate Module | `Ctrl + Alt + I` |
 | Update Instantiation | `Ctrl + Alt + U` |
 | Declare Signals | `Ctrl + Alt + D` |
+| Align Instantiation | `Ctrl + Alt + L` |
 
 ---
 
