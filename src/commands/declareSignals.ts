@@ -84,6 +84,7 @@ const SV_KEYWORDS = new Set([
 ]);
 
 type DeclKind = "wire" | "reg";
+type DeclStyle = "verilog" | "systemverilog";
 
 type SignalInfo = {
   kind: DeclKind;
@@ -270,14 +271,50 @@ function addIdentifiersAsCandidates(
   text: string,
   kind: DeclKind,
   declared: Map<string, SignalInfo>,
-  addCandidate: (name: string, kind: DeclKind, ranges: string[]) => void
+  addCandidate: (name: string, kind: DeclKind, ranges: string[]) => void,
+  ranges: string[] = []
 ): void {
   const ids = extractIdentifiers(text);
   for (const id of ids) {
     if (!isValidSignalIdentifier(id)) continue;
     if (declared.has(id)) continue;
-    addCandidate(id, kind, []);
+    addCandidate(id, kind, ranges);
   }
+}
+
+function isOutputPortName(portName: string): boolean {
+  return /_o$/.test(portName);
+}
+
+function getPortInfoFromComment(line: string): { direction: string; ranges: string[] } | null {
+  const commentMatch = line.match(/\/\/(.*)$/);
+  if (!commentMatch) {
+    return null;
+  }
+
+  const comment = commentMatch[1];
+  const directionMatch = comment.match(/\b(input|output|inout)\b/i);
+  if (!directionMatch) {
+    return null;
+  }
+
+  return {
+    direction: directionMatch[1].toLowerCase(),
+    ranges: extractRangesFromText(comment),
+  };
+}
+
+function isOutputPortConnection(line: string, portName: string): boolean {
+  const portInfo = getPortInfoFromComment(line);
+  if (portInfo) {
+    return portInfo.direction === "output";
+  }
+
+  return isOutputPortName(portName);
+}
+
+function getPortConnectionRanges(line: string): string[] {
+  return getPortInfoFromComment(line)?.ranges ?? [];
 }
 
 function scanNamedPortConnections(
@@ -289,21 +326,36 @@ function scanNamedPortConnections(
   let match: RegExpExecArray | null;
 
   while ((match = connectionPattern.exec(line)) !== null) {
+    const portName = match[2];
     const expression = match[3].trim();
-    if (!expression) continue;
+    if (!isOutputPortConnection(line, portName)) continue;
+    if (!expression) {
+      addCandidate(portName, "wire", getPortConnectionRanges(line));
+      continue;
+    }
 
-    addIdentifiersAsCandidates(expression, "wire", declared, addCandidate);
+    addIdentifiersAsCandidates(
+      expression,
+      "wire",
+      declared,
+      addCandidate,
+      getPortConnectionRanges(line)
+    );
   }
 
   const shorthandPattern = /(^|[\s,(])\.(\w+)\b(?!\s*\()/g;
   while ((match = shorthandPattern.exec(line)) !== null) {
-    addCandidate(match[2], "wire", []);
+    const portName = match[2];
+    if (!isOutputPortConnection(line, portName)) continue;
+
+    addCandidate(portName, "wire", getPortConnectionRanges(line));
   }
 }
 
-function makeDeclarationLine(sig: MissingSignal): string {
+function makeDeclarationLine(sig: MissingSignal, style: DeclStyle): string {
   const rangeText = sig.ranges.length > 0 ? " " + sig.ranges.join(" ") : "";
-  return `${sig.kind}${rangeText} ${sig.name};`;
+  const keyword = style === "systemverilog" ? "logic" : sig.kind;
+  return `${keyword}${rangeText} ${sig.name};`;
 }
 
 function findMissingSignals(documentText: string): MissingSignal[] {
@@ -373,7 +425,7 @@ function findMissingSignals(documentText: string): MissingSignal[] {
       continue;
     }
 
-    scanNamedPortConnections(line, declared, addCandidate);
+    scanNamedPortConnections(rawLine, declared, addCandidate);
 
     // always 起始
     if (
@@ -408,7 +460,7 @@ function findMissingSignals(documentText: string): MissingSignal[] {
     // always 内部
     if (inAlwaysBlock) {
       line = line.replace(/begin\s*:\s*\w+/g, "begin");
-      scanNamedPortConnections(line, declared, addCandidate);
+      scanNamedPortConnections(rawLine, declared, addCandidate);
 
       // lhs <= rhs; 或 lhs = rhs;
       const assignMatch = line.match(/^(.+?)\s*(<=|=)\s*(.+?)\s*;?$/);
@@ -475,7 +527,32 @@ export async function declareSignalsCommand(
     return;
   }
 
-  const declLines = missingSignals.map((sig) => makeDeclarationLine(sig));
+  const pickedStyle = await vscode.window.showQuickPick(
+    [
+      {
+        label: "SystemVerilog",
+        description: "Declare all missing signals as logic",
+        style: "systemverilog" as DeclStyle,
+      },
+      {
+        label: "Verilog",
+        description: "Infer wire/reg declarations",
+        style: "verilog" as DeclStyle,
+      },
+    ],
+    {
+      placeHolder: "Select declaration style",
+      ignoreFocusOut: true,
+    }
+  );
+
+  if (!pickedStyle) {
+    return;
+  }
+
+  const declLines = missingSignals.map((sig) =>
+    makeDeclarationLine(sig, pickedStyle.style)
+  );
   const insertText = declLines.join("\n") + "\n\n";
 
   const insertPos = findInsertPosition(document);
@@ -485,6 +562,6 @@ export async function declareSignalsCommand(
   });
 
   vscode.window.showInformationMessage(
-    `SoCBuilder: Declared ${missingSignals.length} internal signal(s).`
+    `SoCBuilder: Declared ${missingSignals.length} internal signal(s) using ${pickedStyle.label}.`
   );
 }
