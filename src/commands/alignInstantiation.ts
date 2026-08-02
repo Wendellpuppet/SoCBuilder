@@ -7,8 +7,26 @@ type ParsedConnection = {
   expr: string;
   comma: string;
   comment: string;
+  commentInfo: ParsedCommentInfo | null;
   shorthand: boolean;
 };
+
+type ParsedCommentInfo = {
+  direction: string;
+  ranges: string[];
+};
+
+function parseCommentInfo(comment: string): ParsedCommentInfo | null {
+  const directionMatch = comment.match(/\b(input|output|inout)\b/i);
+  if (!directionMatch) {
+    return null;
+  }
+
+  return {
+    direction: directionMatch[1].toLowerCase(),
+    ranges: comment.match(/\[[^\]]+\]/g) || [],
+  };
+}
 
 function parseConnectionLine(line: string): ParsedConnection | null {
   if (/^\s*$/.test(line) || /^\s*\/\//.test(line)) {
@@ -23,6 +41,7 @@ function parseConnectionLine(line: string): ParsedConnection | null {
   }
 
   const rawExpr = match[3];
+  const comment = match[5] ? ` ${match[5].trim()}` : "";
   const shorthand = rawExpr === undefined;
 
   return {
@@ -30,9 +49,22 @@ function parseConnectionLine(line: string): ParsedConnection | null {
     name: match[2],
     expr: shorthand ? match[2] : rawExpr.trim(),
     comma: match[4] ?? "",
-    comment: match[5] ?? "",
+    comment,
+    commentInfo: parseCommentInfo(comment),
     shorthand,
   };
+}
+
+function buildConnectionComment(
+  commentInfo: ParsedCommentInfo,
+  rangeWidth: number
+): string {
+  const rangeText = commentInfo.ranges.join(" ");
+  if (rangeWidth === 0) {
+    return ` // ${commentInfo.direction}`;
+  }
+
+  return ` // ${padRight(rangeText, rangeWidth)} ${commentInfo.direction}`;
 }
 
 function alignConnectionBlock(lines: string[]): string[] {
@@ -47,6 +79,29 @@ function alignConnectionBlock(lines: string[]): string[] {
 
   const nameWidth = Math.max(...validConnections.map((item) => item.name.length));
   const exprWidth = Math.max(...validConnections.map((item) => item.expr.length));
+  const commentRangeWidth = Math.max(
+    0,
+    ...validConnections.map((item) =>
+      item.commentInfo ? item.commentInfo.ranges.join(" ").length : 0
+    )
+  );
+  const connectionBodies = parsed.map((item) => {
+    if (!item) {
+      return "";
+    }
+
+    const comma = item.comma || (item.comment ? " " : "");
+    return [
+      item.indent,
+      ".",
+      padRight(item.name, nameWidth),
+      "(",
+      padRight(item.expr, exprWidth),
+      ")",
+      comma,
+    ].join("");
+  });
+  const commentColumn = Math.max(...connectionBodies.map((body) => body.length));
   const output: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -56,18 +111,14 @@ function alignConnectionBlock(lines: string[]): string[] {
       continue;
     }
 
-    const pieces = [
-      item.indent,
-      ".",
-      padRight(item.name, nameWidth),
-      "(",
-      padRight(item.expr, exprWidth),
-      ")",
-      item.comma,
-      item.comment,
-    ];
+    const body = connectionBodies[i];
+    const comment = item.commentInfo
+      ? buildConnectionComment(item.commentInfo, commentRangeWidth)
+      : item.comment;
 
-    output.push(pieces.join(""));
+    output.push(
+      comment ? `${padRight(body, commentColumn)}${comment}` : body
+    );
   }
 
   return output;
