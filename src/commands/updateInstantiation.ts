@@ -491,11 +491,12 @@ function buildPortDirectionComment(
   rangeText: string,
   rangeWidth: number
 ): string {
-  if (rangeWidth === 0) {
-    return `// ${port.direction}`;
+  const direction = port.direction === "output" ? "O" : "I";
+  if (rangeWidth === 0 || !rangeText) {
+    return `// ${direction}`;
   }
 
-  return `// ${padRight(rangeText, rangeWidth)} ${port.direction}`;
+  return `// ${direction} ${padRight(rangeText, rangeWidth)}`;
 }
 
 export async function updateInstantiationCommand(

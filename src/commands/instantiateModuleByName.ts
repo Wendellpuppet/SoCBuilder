@@ -2,29 +2,29 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { padRight } from "../utils/text";
 
-type PortInfo = {
+export type PortInfo = {
   direction: string;
   typePart: string;
   name: string;
 };
 
-type ParamInfo = {
+export type ParamInfo = {
   name: string;
 };
 
-type ModuleInfo = {
+export type ModuleInfo = {
   moduleName: string;
   params: ParamInfo[];
   ports: PortInfo[];
   filePath: string;
 };
 
-type FindModuleResult = {
+export type FindModuleResult = {
   modules: ModuleInfo[];
   scannedFileCount: number;
 };
 
-type SearchTarget = {
+export type SearchTarget = {
   displayPath: string;
   files?: vscode.Uri[];
   includePattern?: vscode.GlobPattern;
@@ -47,7 +47,7 @@ function isVerilogFilePath(filePath: string): boolean {
   return /\.(sv|v|svh|vh)$/i.test(filePath);
 }
 
-async function resolveSearchTarget(
+export async function resolveSearchTarget(
   searchPath: string
 ): Promise<SearchTarget | null> {
   const trimmedPath = searchPath.trim();
@@ -443,14 +443,15 @@ function buildPortDirectionComment(
   rangeText: string,
   rangeWidth: number
 ): string {
-  if (rangeWidth === 0) {
-    return `// ${port.direction}`;
+  const direction = port.direction === "output" ? "O" : "I";
+  if (rangeWidth === 0 || !rangeText) {
+    return `// ${direction}`;
   }
 
-  return `// ${padRight(rangeText, rangeWidth)} ${port.direction}`;
+  return `// ${direction} ${padRight(rangeText, rangeWidth)}`;
 }
 
-async function findModuleInWorkspace(
+export async function findModuleInWorkspace(
   moduleName: string,
   searchTarget: SearchTarget
 ): Promise<FindModuleResult> {

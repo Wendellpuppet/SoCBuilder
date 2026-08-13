@@ -17,15 +17,22 @@ type ParsedCommentInfo = {
 };
 
 function parseCommentInfo(comment: string): ParsedCommentInfo | null {
-  const directionMatch = comment.match(/\b(input|output|inout)\b/i);
+  const directionMatch = comment.match(/\b(input|output|inout|I|O)\b/i);
   if (!directionMatch) {
     return null;
   }
 
   return {
-    direction: directionMatch[1].toLowerCase(),
+    direction: normalizeCommentDirection(directionMatch[1]),
     ranges: comment.match(/\[[^\]]+\]/g) || [],
   };
+}
+
+function normalizeCommentDirection(direction: string): string {
+  const lower = direction.toLowerCase();
+  if (lower === "i" || lower === "input") return "I";
+  if (lower === "o" || lower === "output") return "O";
+  return lower.toUpperCase();
 }
 
 function parseConnectionLine(line: string): ParsedConnection | null {
@@ -60,11 +67,11 @@ function buildConnectionComment(
   rangeWidth: number
 ): string {
   const rangeText = commentInfo.ranges.join(" ");
-  if (rangeWidth === 0) {
+  if (rangeWidth === 0 || !rangeText) {
     return ` // ${commentInfo.direction}`;
   }
 
-  return ` // ${padRight(rangeText, rangeWidth)} ${commentInfo.direction}`;
+  return ` // ${commentInfo.direction} ${padRight(rangeText, rangeWidth)}`;
 }
 
 function alignConnectionBlock(lines: string[]): string[] {

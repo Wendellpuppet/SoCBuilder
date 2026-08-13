@@ -83,15 +83,15 @@ const SV_KEYWORDS = new Set([
   "let"
 ]);
 
-type DeclKind = "wire" | "reg";
-type DeclStyle = "verilog" | "systemverilog";
+export type DeclKind = "wire" | "reg";
+export type DeclStyle = "verilog" | "systemverilog";
 
-type SignalInfo = {
+export type SignalInfo = {
   kind: DeclKind;
   ranges: string[];
 };
 
-type MissingSignal = {
+export type MissingSignal = {
   name: string;
   kind: DeclKind;
   ranges: string[];
@@ -160,7 +160,7 @@ function extractBaseSignalName(text: string): string | null {
   return match ? match[1] : null;
 }
 
-function findDeclaredSignals(documentText: string): Map<string, SignalInfo> {
+export function findDeclaredSignals(documentText: string): Map<string, SignalInfo> {
   const declared = new Map<string, SignalInfo>();
 
   for (const rawLine of documentText.split(/\r?\n/)) {
@@ -286,6 +286,13 @@ function isOutputPortName(portName: string): boolean {
   return /_o$/.test(portName);
 }
 
+function normalizeCommentDirection(direction: string): string {
+  const lower = direction.toLowerCase();
+  if (lower === "i" || lower === "input") return "input";
+  if (lower === "o" || lower === "output") return "output";
+  return lower;
+}
+
 function getPortInfoFromComment(line: string): { direction: string; ranges: string[] } | null {
   const commentMatch = line.match(/\/\/(.*)$/);
   if (!commentMatch) {
@@ -293,13 +300,13 @@ function getPortInfoFromComment(line: string): { direction: string; ranges: stri
   }
 
   const comment = commentMatch[1];
-  const directionMatch = comment.match(/\b(input|output|inout)\b/i);
+  const directionMatch = comment.match(/\b(input|output|inout|I|O)\b/i);
   if (!directionMatch) {
     return null;
   }
 
   return {
-    direction: directionMatch[1].toLowerCase(),
+    direction: normalizeCommentDirection(directionMatch[1]),
     ranges: extractRangesFromText(comment),
   };
 }
@@ -352,7 +359,7 @@ function scanNamedPortConnections(
   }
 }
 
-function makeDeclarationLine(sig: MissingSignal, style: DeclStyle): string {
+export function makeDeclarationLine(sig: MissingSignal, style: DeclStyle): string {
   const rangeText = sig.ranges.length > 0 ? " " + sig.ranges.join(" ") : "";
   const keyword = style === "systemverilog" ? "logic" : sig.kind;
   return `${keyword}${rangeText} ${sig.name};`;

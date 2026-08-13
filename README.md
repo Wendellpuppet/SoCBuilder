@@ -87,8 +87,8 @@ Generated:
 a #(
   .A(A)
 ) u_a (
-  .a(), // input
-  .b()  // output
+  .a(), // I
+  .b()  // O
 );
 ```
 
@@ -110,9 +110,9 @@ assignments, procedural blocks, and module instantiations.
 assign out_data[3:0] = in_data;
 
 sub u_sub (
-  .data_i(inst_data),       // [31:0] input
-  .data_o(data_from_sub),   // [31:0] output
-  .ready_o(ready_from_sub)  //        output
+  .data_i(inst_data),       // I [31:0]
+  .data_o(data_from_sub),   // O [31:0]
+  .ready_o(ready_from_sub)  // O
 );
 
 always_ff @(posedge clk_i) begin
@@ -142,13 +142,44 @@ logic done_q;
 
 ✔ Detects missing assignment targets and expression inputs
 ✔ Detects named and shorthand output module port connections
-✔ Uses instantiation comments like `// [31:0] output` to identify output connections and widths
+✔ Uses instantiation comments like `// O [31:0]` to identify output connections and widths
 ✔ Supports Verilog `wire`/`reg` declarations and SystemVerilog `logic` declarations
 ✔ Filters constants, function calls, package references, and hierarchical names
 
 ---
 
-### 4. Align Instantiation
+### 4. Declare Module Outputs By Name
+
+Declares output signals for a module by searching the module definition from a
+module name.
+
+#### Example:
+
+Given module:
+
+```sv
+module sub (
+  input        clk_i,
+  output [7:0] data_o,
+  output       valid_o
+);
+```
+
+Generated declarations:
+
+```sv
+logic [7:0] data_o;
+logic valid_o;
+```
+
+✔ Searches by module name
+✔ Declares output ports only
+✔ Preserves output port widths
+✔ Supports Verilog `wire` declarations and SystemVerilog `logic` declarations
+
+---
+
+### 5. Align Instantiation
 
 Aligns named parameter and port connections inside module instantiations.
 
@@ -198,6 +229,7 @@ prim_fifo_sync_cnt #(
 | Update Instantiation | `Ctrl + Alt + U` |
 | Declare Signals | `Ctrl + Alt + D` |
 | Align Instantiation | `Ctrl + Alt + L` |
+| Declare Module Outputs | `Ctrl + Alt + O` |
 
 ---
 
