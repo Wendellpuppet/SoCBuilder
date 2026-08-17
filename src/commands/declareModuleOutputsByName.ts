@@ -1,58 +1,172 @@
 import * as vscode from "vscode";
 import {
-  findModuleInWorkspace,
-  ModuleInfo,
-  resolveSearchTarget,
-} from "./instantiateModuleByName";
-import {
   DeclStyle,
   findDeclaredSignals,
   makeDeclarationLine,
   MissingSignal,
 } from "./declareSignals";
 
-function getPortRanges(typePart: string): string[] {
-  return typePart.match(/\[[^\]]+\]/g) || [];
+type PortCommentInfo = {
+  direction: string;
+  ranges: string[];
+};
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function findInsertPosition(document: vscode.TextDocument): vscode.Position {
-  const lines = document.getText().split(/\r?\n/);
+function extractRangesFromText(text: string): string[] {
+  return text.match(/\[[^\]]+\]/g) || [];
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    if (/\)\s*;/.test(lines[i])) {
-      return new vscode.Position(i + 1, 0);
+function normalizeCommentDirection(direction: string): string {
+  const lower = direction.toLowerCase();
+  if (lower === "i" || lower === "input") return "input";
+  if (lower === "o" || lower === "output") return "output";
+  return lower;
+}
+
+function getPortInfoFromComment(line: string): PortCommentInfo | null {
+  const commentMatch = line.match(/\/\/(.*)$/);
+  if (!commentMatch) {
+    return null;
+  }
+
+  const comment = commentMatch[1];
+  const directionMatch = comment.match(/\b(input|output|inout|I|O)\b/i);
+  if (!directionMatch) {
+    return null;
+  }
+
+  return {
+    direction: normalizeCommentDirection(directionMatch[1]),
+    ranges: extractRangesFromText(comment),
+  };
+}
+
+function isValidSignalIdentifier(name: string): boolean {
+  return /^[A-Za-z_]\w*$/.test(name);
+}
+
+function findMatchingParen(text: string, openIndex: number): number {
+  let depth = 0;
+
+  for (let i = openIndex; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1] ?? "";
+
+    if (ch === "/" && next === "/") {
+      const lineEnd = text.indexOf("\n", i + 2);
+      if (lineEnd === -1) {
+        return -1;
+      }
+      i = lineEnd;
+      continue;
     }
 
-    if (/^\s*endmodule\b/.test(lines[i])) {
-      return new vscode.Position(i, 0);
+    if (ch === "\"") {
+      i++;
+      while (i < text.length) {
+        if (text[i] === "\\" && i + 1 < text.length) {
+          i += 2;
+          continue;
+        }
+        if (text[i] === "\"") {
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === "(") {
+      depth++;
+      continue;
+    }
+
+    if (ch === ")") {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
     }
   }
 
-  return new vscode.Position(0, 0);
+  return -1;
 }
 
-async function pickModule(
-  matches: ModuleInfo[],
-  moduleName: string
-): Promise<ModuleInfo | null> {
-  if (matches.length === 1) {
-    return matches[0];
+function findInstantiationPortBlock(
+  documentText: string,
+  instanceName: string
+): string | null {
+  const instanceRegex = new RegExp(`\\b${escapeRegExp(instanceName)}\\b\\s*\\(`, "g");
+  const match = instanceRegex.exec(documentText);
+  if (!match) {
+    return null;
   }
 
-  const picked = await vscode.window.showQuickPick(
-    matches.map((m) => ({
-      label: m.moduleName,
-      description: m.filePath,
-      detail: `params: ${m.params.length}, ports: ${m.ports.length}`,
-      module: m,
-    })),
-    {
-      placeHolder: `Multiple modules named '${moduleName}' found. Select one.`,
-      ignoreFocusOut: true,
-    }
-  );
+  const openIndex = documentText.indexOf("(", match.index);
+  if (openIndex === -1) {
+    return null;
+  }
 
-  return picked?.module ?? null;
+  const closeIndex = findMatchingParen(documentText, openIndex);
+  if (closeIndex === -1) {
+    return null;
+  }
+
+  return documentText.slice(openIndex + 1, closeIndex);
+}
+
+function extractConnectedSignal(line: string): string | null {
+  const namedMatch = line.match(/(^|[\s,(])\.(\w+)\s*\(\s*([^)]*?)\s*\)/);
+  if (namedMatch) {
+    const portName = namedMatch[2];
+    const expression = namedMatch[3].trim();
+    return expression || portName;
+  }
+
+  const shorthandMatch = line.match(/(^|[\s,(])\.(\w+)\b(?!\s*\()/);
+  return shorthandMatch ? shorthandMatch[2] : null;
+}
+
+function findOutputSignalsFromInstantiation(
+  documentText: string,
+  instanceName: string
+): MissingSignal[] | null {
+  const portBlock = findInstantiationPortBlock(documentText, instanceName);
+  if (portBlock === null) {
+    return null;
+  }
+
+  const declared = findDeclaredSignals(documentText);
+  const outputs: MissingSignal[] = [];
+  const seen = new Set<string>();
+
+  for (const line of portBlock.split(/\r?\n/)) {
+    const portInfo = getPortInfoFromComment(line);
+    if (!portInfo || portInfo.direction !== "output") {
+      continue;
+    }
+
+    const signalName = extractConnectedSignal(line);
+    if (!signalName || !isValidSignalIdentifier(signalName)) {
+      continue;
+    }
+
+    if (seen.has(signalName) || declared.has(signalName)) {
+      continue;
+    }
+
+    seen.add(signalName);
+    outputs.push({
+      name: signalName,
+      kind: "wire",
+      ranges: portInfo.ranges,
+    });
+  }
+
+  return outputs;
 }
 
 async function pickDeclarationStyle(): Promise<DeclStyle | null> {
@@ -60,12 +174,12 @@ async function pickDeclarationStyle(): Promise<DeclStyle | null> {
     [
       {
         label: "SystemVerilog",
-        description: "Declare module outputs as logic",
+        description: "Declare instance outputs as logic",
         style: "systemverilog" as DeclStyle,
       },
       {
         label: "Verilog",
-        description: "Declare module outputs as wire",
+        description: "Declare instance outputs as wire",
         style: "verilog" as DeclStyle,
       },
     ],
@@ -81,51 +195,33 @@ async function pickDeclarationStyle(): Promise<DeclStyle | null> {
 export async function declareModuleOutputsByNameCommand(
   editor: vscode.TextEditor
 ): Promise<void> {
-  const searchPath = await vscode.window.showInputBox({
-    prompt: "Enter search path first (workspace-relative or absolute)",
-    placeHolder: "e.g. example or /path/to/rtl",
+  const instanceName = await vscode.window.showInputBox({
+    prompt: "Enter instance name",
+    placeHolder: "e.g. u_fifo",
     ignoreFocusOut: true,
   });
 
-  if (searchPath === undefined) {
+  if (!instanceName) {
     return;
   }
 
-  const moduleName = await vscode.window.showInputBox({
-    prompt: "Enter module name",
-    placeHolder: "e.g. prim_fifo_async",
-    ignoreFocusOut: true,
-  });
+  const documentText = editor.document.getText();
+  const missingOutputs = findOutputSignalsFromInstantiation(
+    documentText,
+    instanceName.trim()
+  );
 
-  if (!moduleName) {
-    return;
-  }
-
-  const searchTarget = await resolveSearchTarget(searchPath);
-  if (!searchTarget) {
+  if (missingOutputs === null) {
     vscode.window.showErrorMessage(
-      `SoCBuilder: Search path '${searchPath.trim() || "."}' does not exist or is not a Verilog/SystemVerilog file. Please check the path.`
+      `SoCBuilder: Instance '${instanceName.trim()}' was not found in the current document.`
     );
     return;
   }
 
-  const result = await findModuleInWorkspace(moduleName.trim(), searchTarget);
-  if (result.scannedFileCount === 0) {
-    vscode.window.showErrorMessage(
-      `SoCBuilder: Search path '${searchTarget.displayPath}' is valid, but no SystemVerilog/Verilog files were found under it.`
+  if (missingOutputs.length === 0) {
+    vscode.window.showInformationMessage(
+      `SoCBuilder: No undeclared output signal(s) found for instance '${instanceName.trim()}'.`
     );
-    return;
-  }
-
-  if (result.modules.length === 0) {
-    vscode.window.showErrorMessage(
-      `SoCBuilder: Files were found under path '${searchTarget.displayPath}', but module '${moduleName}' was not found.`
-    );
-    return;
-  }
-
-  const selected = await pickModule(result.modules, moduleName.trim());
-  if (!selected) {
     return;
   }
 
@@ -134,44 +230,15 @@ export async function declareModuleOutputsByNameCommand(
     return;
   }
 
-  const declared = findDeclaredSignals(editor.document.getText());
-  const missingOutputs: MissingSignal[] = [];
-  const seen = new Set<string>();
-
-  for (const port of selected.ports) {
-    if (port.direction !== "output") {
-      continue;
-    }
-
-    if (seen.has(port.name) || declared.has(port.name)) {
-      continue;
-    }
-
-    seen.add(port.name);
-    missingOutputs.push({
-      name: port.name,
-      kind: "wire",
-      ranges: getPortRanges(port.typePart),
-    });
-  }
-
-  if (missingOutputs.length === 0) {
-    vscode.window.showInformationMessage(
-      `SoCBuilder: No undeclared output signal(s) found for module '${selected.moduleName}'.`
-    );
-    return;
-  }
-
   const insertText =
     missingOutputs.map((sig) => makeDeclarationLine(sig, style)).join("\n") +
     "\n\n";
-  const insertPos = findInsertPosition(editor.document);
 
   await editor.edit((editBuilder) => {
-    editBuilder.insert(insertPos, insertText);
+    editBuilder.insert(editor.selection.active, insertText);
   });
 
   vscode.window.showInformationMessage(
-    `SoCBuilder: Declared ${missingOutputs.length} output signal(s) for module '${selected.moduleName}'.`
+    `SoCBuilder: Declared ${missingOutputs.length} output signal(s) for instance '${instanceName.trim()}'.`
   );
 }

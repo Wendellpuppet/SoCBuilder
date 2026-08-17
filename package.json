@@ -2,7 +2,7 @@
   "name": "socbuilder",
   "displayName": "SoCBuilder",
   "description": "SystemVerilog productivity tools for SoC design (align, instantiate, etc.)",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "WendellZhao",
   "icon": "images/icon.png",
   "engines": {
@@ -44,7 +44,7 @@
       },
       {
         "command": "socBuilder.declareModuleOutputsByName",
-        "title": "SoCBuilder: Declare Module Outputs By Name"
+        "title": "SoCBuilder: Declare Instance Outputs By Name"
       }
     ],
     "menus": {

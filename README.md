@@ -148,20 +148,20 @@ logic done_q;
 
 ---
 
-### 4. Declare Module Outputs By Name
+### 4. Declare Instance Outputs By Name
 
-Declares output signals for a module by searching the module definition from a
-module name.
+Declares output signals by searching an existing instantiation in the current
+file from an instance name.
 
 #### Example:
 
-Given module:
+Given instantiation:
 
 ```sv
-module sub (
-  input        clk_i,
-  output [7:0] data_o,
-  output       valid_o
+sub u_sub (
+  .clk_i(clk_i),   // I
+  .data_o(data_o), // O [7:0]
+  .valid_o(valid_o)  // O
 );
 ```
 
@@ -172,9 +172,9 @@ logic [7:0] data_o;
 logic valid_o;
 ```
 
-✔ Searches by module name
-✔ Declares output ports only
-✔ Preserves output port widths
+✔ Searches the current file by instance name
+✔ Declares output connections only
+✔ Preserves widths from instantiation comments like `// O [7:0]`
 ✔ Supports Verilog `wire` declarations and SystemVerilog `logic` declarations
 
 ---
@@ -229,7 +229,7 @@ prim_fifo_sync_cnt #(
 | Update Instantiation | `Ctrl + Alt + U` |
 | Declare Signals | `Ctrl + Alt + D` |
 | Align Instantiation | `Ctrl + Alt + L` |
-| Declare Module Outputs | `Ctrl + Alt + O` |
+| Declare Instance Outputs | `Ctrl + Alt + O` |
 
 ---
 
