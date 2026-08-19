@@ -71,7 +71,7 @@ function buildConnectionComment(
     return ` // ${commentInfo.direction}`;
   }
 
-  return ` // ${commentInfo.direction} ${padRight(rangeText, rangeWidth)}`;
+  return ` // ${commentInfo.direction} ${rangeText}`;
 }
 
 function alignConnectionBlock(lines: string[]): string[] {
@@ -124,7 +124,7 @@ function alignConnectionBlock(lines: string[]): string[] {
       : item.comment;
 
     output.push(
-      comment ? `${padRight(body, commentColumn)}${comment}` : body
+      (comment ? `${padRight(body, commentColumn)}${comment}` : body).trimEnd()
     );
   }
 
